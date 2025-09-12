@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Resumen por SIGLA — Transterra</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  .table-wrap{overflow:auto;max-height:60vh}
+  #chartWrap{position:relative;height:22rem}
+  #chartWrap canvas{width:100%!important;height:100%!important}
+  .sticky-th{position:sticky;top:0;z-index:1;background:#f1f5f9}
+  .mono{font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace}
+</style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+<header class="px-6 py-4 bg-white shadow-sm sticky top-0 z-20">
+  <div class="max-w-7xl mx-auto flex flex-col gap-3">
+    <div class="flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <img src="logo_transterra.png" alt="Transterra" class="h-10 w-auto"/>
+        <h1 class="text-2xl font-semibold">Resumen de trabajos por <span class="font-bold">SIGLA</span></h1>
+      </div>
+      <div class="flex flex-wrap gap-2 items-end">
+        <label class="text-sm">
+          <span class="block font-medium">URL o ID</span>
+          <input id="sheetInput" class="border rounded-lg px-3 py-2 text-sm w-[22rem] mono"
+                 value="https://docs.google.com/spreadsheets/d/1tHTmH-0MmNLQlGgWZ8Fc4CVKHs2WMb2lwvt3HsVWgsg/edit?usp=sharing">
+        </label>
+        <label class="text-sm">
+          <span class="block font-medium">Hoja</span>
+          <input id="sheetName" class="border rounded-lg px-3 py-2 text-sm" value="BD">
+        </label>
+        <label class="text-sm">
+          <span class="block font-medium">GID (opcional)</span>
+          <input id="sheetGid" class="border rounded-lg px-3 py-2 text-sm" placeholder="p.ej. 0">
+        </label>
+        <button id="btnLoad" class="px-4 py-2 rounded-xl bg-indigo-600 text-white shadow hover:bg-indigo-700">Cargar</button>
+        <button id="btnOpen" class="px-4 py-2 rounded-xl bg-white border shadow hover:bg-slate-50" title="Abrir para editar en Google Sheets">Abrir Google Sheet</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main class="max-w-7xl mx-auto px-6 py-6">
+  <!-- Filtros -->
+  <section class="mb-6 grid grid-cols-1 lg:grid-cols-12 gap-4">
+    <div class="lg:col-span-9 bg-white rounded-2xl p-4 shadow">
+      <div class="grid gap-4 md:grid-cols-3 lg:grid-cols-4">
+        <label class="text-sm">
+          <span class="block font-medium">Buscar SIGLA</span>
+          <input id="txtBuscar" type="search" placeholder="Filtra por SIGLA…" class="w-full border rounded-lg px-3 py-2">
+        </label>
+        <label class="text-sm">
+          <span class="block font-medium">Año</span>
+          <select id="selAnio" class="w-full border rounded-lg px-3 py-2">
+            <option value="all" selected>Todos</option>
+          </select>
+        </label>
+        <label class="text-sm">
+          <span class="block font-medium">Mes</span>
+          <select id="selMes" class="w-full border rounded-lg px-3 py-2">
+            <option value="all" selected>Todos</option>
+          </select>
+        </label>
+        <label class="text-sm flex items-center gap-2 mt-6 md:mt-0">
+          <input id="chkSoloActivos" type="checkbox" class="h-4 w-4">
+          <span>Solo Estado = <b>Activo</b></span>
+        </label>
+      </div>
+    </div>
+
+    <div class="lg:col-span-3 flex gap-4">
+      <div class="flex-1 bg-white rounded-2xl p-4 shadow">
+        <div class="text-xs uppercase text-slate-500">Filas</div>
+        <div id="kpiFilas" class="text-2xl font-semibold">—</div>
+      </div>
+      <div class="flex-1 bg-white rounded-2xl p-4 shadow">
+        <div class="text-xs uppercase text-slate-500">SIGLA distintas</div>
+        <div id="kpiSiglas" class="text-2xl font-semibold">—</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Chart -->
+  <section class="mb-6 bg-white rounded-2xl p-4 shadow">
+    <div class="flex items-center justify-between mb-2">
+      <h2 class="text-lg font-semibold">Top 15 SIGLA</h2>
+      <div class="text-sm text-slate-500">Columnas apiladas: <b>REPUESTOS</b> y <b>MANO DE OBRA</b></div>
+    </div>
+    <div id="chartWrap"><canvas id="chartSigla"></canvas></div>
+  </section>
+
+  <!-- Tabla -->
+  <section class="bg-white rounded-2xl p-4 shadow">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-lg font-semibold">Resumen agrupado</h2>
+      <div class="flex gap-2">
+        <button id="btnExport" class="px-3 py-2 text-sm rounded-lg border hover:bg-slate-50">Descargar resumen (CSV)</button>
+        <button id="btnLimpiar" class="px-3 py-2 text-sm rounded-lg border hover:bg-slate-50">Limpiar filtros</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table class="min-w-full text-sm">
+        <thead>
+          <tr class="bg-slate-100 text-slate-600">
+            <th class="text-left p-2 sticky-th">SIGLA</th>
+            <th class="text-right p-2 sticky-th">Conteo</th>
+            <th class="text-right p-2 sticky-th">Repuestos</th>
+            <th class="text-right p-2 sticky-th">Mano de Obra</th>
+            <th class="text-right p-2 sticky-th">Total</th>
+            <th class="text-right p-2 sticky-th">% Part.</th>
+          </tr>
+        </thead>
+        <tbody id="tbodyResumen"></tbody>
+        <tfoot>
+          <tr class="bg-slate-50 font-semibold">
+            <td class="p-2 text-right">Totales</td>
+            <td id="t_conteo" class="p-2 text-right">—</td>
+            <td id="t_repuestos" class="p-2 text-right">—</td>
+            <td id="t_mano" class="p-2 text-right">—</td>
+            <td id="t_total" class="p-2 text-right">—</td>
+            <td class="p-2 text-right">100.0%</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    <p class="text-xs text-slate-500 mt-3">Totales corresponden a los datos filtrados actualmente.</p>
+  </section>
+</main>
+
+<script>
+/* ==================== Utils ==================== */
+let RAW=[]; let chartRef; const nf=new Intl.NumberFormat('es-CL');
+const MONTH_N={'ENERO':1,'ENE':1,'FEBRERO':2,'FEB':2,'MARZO':3,'MAR':3,'ABRIL':4,'ABR':4,'MAYO':5,'MAY':5,'JUNIO':6,'JUN':6,'JULIO':7,'JUL':7,'AGOSTO':8,'AGO':8,'SEPTIEMBRE':9,'SETIEMBRE':9,'SEP':9,'OCTUBRE':10,'OCT':10,'NOVIEMBRE':11,'NOV':11,'DICIEMBRE':12,'DIC':12};
+const MONTH_NAME=[null,'Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+const norm=s=>String(s??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
+const keyLike=(row,needle)=>{if(!row)return null;const keys=Object.keys(row);const N=norm(needle);return keys.find(k=>norm(k).includes(N))||null;};
+const validId=id=>/^[A-Za-z0-9\-_]{25,}$/.test(id||'');
+
+/* parse helpers */
+function parseMonthVal(v){ if(v==null)return NaN; if(typeof v==='number'&&v>=1&&v<=12)return v|0;
+  const s=norm(v).trim(); if(/^\d{1,2}$/.test(s)){const m=+s;return(m>=1&&m<=12)?m:NaN;} if(MONTH_N[s])return MONTH_N[s]; return NaN; }
+function parseYearVal(v){ if(v==null)return NaN; if(typeof v==='number')return v|0; const s=String(v).trim(); return /^\d{4}$/.test(s)?+s:NaN; }
+function parseDateSmart(v){
+  const s=String(v||'').trim(); if(!s) return null;
+  let m=s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/); if(m) return new Date(+m[1],+m[2]-1,+m[3]);
+  m=s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})$/); if(m){const yyyy=+m[3]<100?2000+ +m[3]:+m[3]; return new Date(yyyy,+m[2]-1,+m[1]);}
+  const d=new Date(s); return isNaN(d)?null:d;
+}
+function toNumber(x){ if(x==null)return NaN; if(typeof x==='number')return x; const s=String(x).replace(/\./g,'').replace(/,/g,'.'); const n=Number(s); return isNaN(n)?NaN:n; }
+
+/* GViz JSONP loader con timeout (silencioso) */
+function extractId(s){ if(!s)return''; const m=String(s).match(/\/d\/([a-zA-Z0-9\-_]+)/); return m?m[1]:String(s).trim(); }
+function loadSheetGVizByName(sheetId,sheetName,timeoutMs=12000){
+  return new Promise((resolve,reject)=>{
+    const cb="GVIZ_CB_"+Math.random().toString(36).slice(2);
+    let finished=false;
+    const cleanup=(script)=>{ delete window[cb]; if(script&&script.parentNode) script.parentNode.removeChild(script); };
+    window[cb]=(resp)=>{
+      if(finished) return; finished=true; clearTimeout(timer);
+      try{
+        const t=resp.table; const headers=t.cols.map(c=>c.label||c.id);
+        const rows=t.rows.map(r=>{ const o={}; r.c.forEach((cell,i)=>{ o[headers[i]] = cell ? (cell.v ?? "") : "";}); return o; });
+        resolve(rows);
+      }catch(e){ reject(e); }
+      cleanup(script);
+    };
+    const url=`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tq=${encodeURIComponent("select *")}&sheet=${encodeURIComponent(sheetName)}&headers=1&tqx=${encodeURIComponent("responseHandler:"+cb+";out:json")}`;
+    const script=document.createElement('script'); script.src=url; script.async=true;
+    script.onerror=()=>{ if(finished) return; finished=true; clearTimeout(timer); cleanup(script); reject(new Error("Error de red al cargar GViz")); };
+    const timer=setTimeout(()=>{ if(finished) return; finished=true; cleanup(script); reject(new Error("Timeout GViz (ID/Hoja incorrecta o permisos)")); }, timeoutMs);
+    document.body.appendChild(script);
+  });
+}
+
+/* Año/Mes desde columnas variables */
+let COLS={};
+function deriveYearMonth(rows){
+  if(!rows.length) return;
+  const s=rows[0];
+  const cA=keyLike(s,'AÑO')||keyLike(s,'ANIO')||keyLike(s,'YEAR');
+  const cM=keyLike(s,'MES')||keyLike(s,'MONTH');
+  const cF=keyLike(s,'FECHA')||keyLike(s,'DATE');
+  COLS={anio:cA,mes:cM,fecha:cF};
+  rows.forEach(r=>{
+    let y=NaN,m=NaN; if(cA) y=parseYearVal(r[cA]); if(cM) m=parseMonthVal(r[cM]);
+    if((!Number.isFinite(y)||!Number.isFinite(m))&&cF){ const d=parseDateSmart(r[cF]); if(d){ if(!Number.isFinite(y)) y=d.getFullYear(); if(!Number.isFinite(m)) m=d.getMonth()+1; } }
+    r.__anio=Number.isFinite(y)?y:null; r.__mesn=Number.isFinite(m)?m:null; r.__mes=Number.isFinite(m)?MONTH_NAME[m]:null;
+  });
+}
+function populateYearMonthSelectors(rows){
+  const years=[...new Set(rows.map(r=>r.__anio).filter(v=>v!=null))].sort((a,b)=>b-a);
+  const months=[...new Set(rows.map(r=>r.__mesn).filter(v=>v!=null))].sort((a,b)=>a-b);
+  const selY=document.getElementById('selAnio'); const selM=document.getElementById('selMes');
+  selY.innerHTML=`<option value="all">Todos</option>`+years.map(y=>`<option value="${y}">${y}</option>`).join('');
+  selM.innerHTML=`<option value="all">Todos</option>`+months.map(m=>`<option value="${m}">${MONTH_NAME[m]}</option>`).join('');
+}
+
+/* Agrupar y filtros */
+function agrupar(rows){
+  const mapa=new Map();
+  for(const r of rows){
+    const k=(r['SIGLA']??'').toString()||'(sin SIGLA)';
+    const prev=mapa.get(k)||{sigla:k,conteo:0,repuestos:0,mano:0,total:0};
+    prev.conteo+=1; const rep=toNumber(r['REPUESTOS']); const man=toNumber(r['MANO DE OBRA']);
+    if(!isNaN(rep)) prev.repuestos+=rep; if(!isNaN(man)) prev.mano+=man; prev.total=prev.repuestos+prev.mano; mapa.set(k,prev);
+  }
+  const arr=[...mapa.values()]; const total=arr.reduce((a,b)=>a+b.total,0); arr.forEach(x=>x.part=total?x.total/total:0);
+  return arr.sort((a,b)=>b.total-a.total);
+}
+function aplicarFiltros(data){
+  const buscar=document.getElementById('txtBuscar').value.toLowerCase();
+  const soloAct=document.getElementById('chkSoloActivos').checked;
+  const anioSel=document.getElementById('selAnio').value;
+  const mesSel=document.getElementById('selMes').value;
+  return data.filter(r=>{
+    const sig=(r['SIGLA']??'').toString();
+    if(buscar && !sig.toLowerCase().includes(buscar)) return false;
+    if(soloAct && 'Estado' in r && String(r['Estado']).toLowerCase()!=='activo') return false;
+    if(anioSel!=='all' && r.__anio!==parseInt(anioSel)) return false;
+    if(mesSel!=='all' && r.__mesn!==parseInt(mesSel)) return false;
+    return true;
+  });
+}
+
+/* Render */
+function render(resumen,filtrada){
+  document.getElementById('kpiFilas').textContent=nf.format(filtrada.length);
+  document.getElementById('kpiSiglas').textContent=nf.format(new Set(filtrada.map(r=>String(r['SIGLA']||''))).size);
+  pintarTabla(resumen);
+  const top=resumen.slice(0,15);
+  renderChart(top.map(x=>x.sigla),top.map(x=>x.repuestos),top.map(x=>x.mano));
+}
+function pintarTabla(resumen){
+  const tb=document.getElementById('tbodyResumen'); tb.innerHTML='';
+  let sConteo=0,sRep=0,sMan=0,sTot=0;
+  for(const r of resumen){
+    sConteo+=r.conteo; sRep+=r.repuestos; sMan+=r.mano; sTot+=r.total;
+    const tr=document.createElement('tr'); tr.className='border-b last:border-0 hover:bg-slate-50';
+    tr.innerHTML=`<td class="p-2 font-medium">${r.sigla}</td>
+      <td class="p-2 text-right">${nf.format(r.conteo)}</td>
+      <td class="p-2 text-right">${nf.format(r.repuestos)}</td>
+      <td class="p-2 text-right">${nf.format(r.mano)}</td>
+      <td class="p-2 text-right">${nf.format(r.total)}</td>
+      <td class="p-2 text-right">${(r.part*100).toFixed(1)}%</td>`;
+    tb.appendChild(tr);
+  }
+  document.getElementById('t_conteo').textContent=nf.format(sConteo);
+  document.getElementById('t_repuestos').textContent=nf.format(sRep);
+  document.getElementById('t_mano').textContent=nf.format(sMan);
+  document.getElementById('t_total').textContent=nf.format(sTot);
+}
+function renderChart(labels,repuestos,mano){
+  const ctx=document.getElementById('chartSigla');
+  if(chartRef) chartRef.destroy();
+  chartRef=new Chart(ctx,{type:'bar',data:{labels,datasets:[
+    {label:'Repuestos',data:repuestos,backgroundColor:'#60a5fa',stack:'t'},
+    {label:'Mano de Obra',data:mano,backgroundColor:'#f59e0b',stack:'t'}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true}},
+      scales:{x:{stacked:true},y:{stacked:true,beginAtZero:true}}}});
+}
+
+/* Export CSV */
+function exportCSV(rows){
+  const header=['SIGLA','Conteo','Repuestos','Mano_de_Obra','Total','Participacion_%'];
+  const lines=[header.join(',')]; let sC=0,sR=0,sM=0,sT=0;
+  for(const r of rows){ sC+=r.conteo; sR+=r.repuestos; sM+=r.mano; sT+=r.total;
+    lines.push([`"${r.sigla.replaceAll('"','""')}"`,r.conteo,r.repuestos,r.mano,r.total,(r.part*100).toFixed(2)].join(',')); }
+  lines.push(['"Totales"',sC,sR,sM,sT,'100.00'].join(','));
+  const blob=new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8;'}); const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download='resumen_por_SIGLA.csv'; a.click(); URL.revokeObjectURL(a.href);
+}
+
+/* Wireup */
+async function cargar(){
+  const raw=document.getElementById('sheetInput').value.trim();
+  const sheetId=extractId(raw);
+  const name=(document.getElementById('sheetName').value||'BD').trim();
+  if(!validId(sheetId)){ alert('El ID parece incompleto o inválido. Pega la URL completa (…/d/<ID>/…).'); return; }
+  // mostrar solo el ID en el input (más armónico)
+  document.getElementById('sheetInput').value=sheetId;
+
+  try{
+    const rows=await loadSheetGVizByName(sheetId,name);
+    RAW=rows.map(r=>Object.fromEntries(Object.entries(r).map(([k,v])=>[k.trim(), typeof v==='string'?v.trim():v])));
+    deriveYearMonth(RAW);
+    populateYearMonthSelectors(RAW);
+    refrescar();
+  }catch(err){
+    alert('No se pudo leer la hoja.\nVerifica permisos (Cualquiera con el enlace: Lector) y el nombre de pestaña.\n\nDetalle: '+err.message);
+  }
+}
+function refrescar(){
+  const filtrada=aplicarFiltros(RAW);
+  const resumen=agrupar(filtrada);
+  render(resumen,filtrada);
+  document.getElementById('btnExport').onclick=()=>exportCSV(resumen);
+}
+/* Abrir en Google Sheets */
+function openSheet(){
+  const id=document.getElementById('sheetInput').value.trim();
+  if(!validId(id)){ alert('Falta un ID válido.'); return; }
+  const gid=(document.getElementById('sheetGid').value||'').trim();
+  const base=`https://docs.google.com/spreadsheets/d/${id}/edit`;
+  const url=gid?`${base}#gid=${encodeURIComponent(gid)}`:base;
+  window.open(url,'_blank','noopener');
+}
+
+document.getElementById('btnLoad').addEventListener('click',cargar);
+document.getElementById('btnOpen').addEventListener('click',openSheet);
+document.getElementById('txtBuscar').addEventListener('input',refrescar);
+document.getElementById('chkSoloActivos').addEventListener('change',refrescar);
+document.getElementById('btnLimpiar').addEventListener('click',()=>{
+  document.getElementById('txtBuscar').value='';
+  document.getElementById('chkSoloActivos').checked=false;
+  document.getElementById('selAnio').value='all';
+  document.getElementById('selMes').value='all';
+  refrescar();
+});
+document.getElementById('selAnio').addEventListener('change',refrescar);
+document.getElementById('selMes').addEventListener('change',refrescar);
+window.addEventListener('DOMContentLoaded',cargar);
+</script>
+</body>
+</html>
