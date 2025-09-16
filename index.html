@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="es" class="">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Reportes de gastos — Transterra</title>
+
+<!-- Tailwind -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script> tailwind.config = { darkMode: 'class' }; </script>
+
+<!-- Chart.js + datalabels -->
+<script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+
+<style>
+  /* --- PALETA VIVA + ARMONÍA (celeste vs naranja) --- */
+  :root{
+    /* Repuestos (celeste más saturado, contraste equilibrado) */
+    --rep1:#22d3ee;  /* cyan-400  */
+    --rep2:#0ea5e9;  /* sky-500   */
+    --rep-b:#0369a1; /* sky-700   */
+
+    /* Mano de Obra (naranjo intenso) */
+    --mano1:#f59e0b; /* amber-500 */
+    --mano2:#f97316; /* orange-500*/
+    --mano-b:#9a3412;/* orange-800*/
+  }
+  .dark{
+    --rep1:#38bdf8;  /* sky-400 */
+    --rep2:#0ea5e9;  /* sky-500 */
+    --rep-b:#075985; /* sky-800 */
+
+    --mano1:#fb923c; /* orange-400 */
+    --mano2:#f59e0b; /* amber-500  */
+    --mano-b:#7c2d12;/* orange-900 */
+  }
+
+  .table-wrap{overflow:auto;max-height:60vh}
+  #chartWrap,#chartWrapProv{position:relative;height:22rem}
+  #chartWrap canvas,#chartWrapProv canvas{width:100%!important;height:100%!important}
+  .sticky-th{position:sticky;top:0;z-index:1;background:#eef2f7}
+  .dark .sticky-th{background:#0f172a}
+  .mono{font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace}
+  .tab-active{background:#111827;color:#fff}
+  .hide{display:none}
+
+  /* Switch tema con íconos */
+  .theme-switch{--h:22px; --w:52px;}
+  .theme-switch input{display:none}
+  .theme-switch .track{
+    width:var(--w);height:var(--h);border-radius:999px;
+    background:#e5e7eb;position:relative;transition:background .2s ease;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:0 6px;font-size:12px;user-select:none
+  }
+  .dark .theme-switch .track{background:#1f2937;color:#f9fafb}
+  .theme-switch .thumb{
+    position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:999px;
+    background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .2s ease
+  }
+  .theme-switch input:checked + .track .thumb{transform:translateX(30px)}
+
+  /* Print */
+  @media print{
+    header, nav, .no-print, .theme-switch{display:none!important}
+    body{background:#fff}
+    main{padding:0}
+    .shadow{box-shadow:none}
+    footer{display:none}
+  }
+</style>
+</head>
+
+<body class="bg-slate-50 text-slate-800 dark:bg-slate-900 dark:text-slate-100">
+<header class="px-6 py-4 bg-white dark:bg-slate-800 shadow-sm sticky top-0 z-30">
+  <div class="max-w-7xl mx-auto flex flex-col gap-3">
+    <div class="flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <img src="logo_transterra.png" alt="Transterra" class="h-10 w-auto"/>
+        <div>
+          <h1 class="text-2xl font-semibold">Reportes de gastos</h1>
+          <p class="text-sm text-slate-500 dark:text-slate-300/70">Fuente: Google Sheets (BD)</p>
+        </div>
+      </div>
+
+      <!-- Controles + Switch tema -->
+      <div class="flex flex-wrap gap-2 items-end">
+        <label class="text-sm">
+          <span class="block font-medium">URL o ID</span>
+          <input id="sheetInput" class="border rounded-lg px-3 py-2 text-sm w-[22rem] mono dark:bg-slate-900 dark:border-slate-700"
+                 value="https://docs.google.com/spreadsheets/d/1tHTmH-0MmNLQlGgWZ8Fc4CVKHs2WMb2lwvt3HsVWgsg/edit?usp=sharing">
+        </label>
+        <label class="text-sm">
+          <span class="block font-medium">Hoja</span>
+          <input id="sheetName" class="border rounded-lg px-3 py-2 text-sm dark:bg-slate-900 dark:border-slate-700" value="BD">
+        </label>
+        <label class="text-sm">
+          <span class="block font-medium">GID (opcional)</span>
+          <input id="sheetGid" class="border rounded-lg px-3 py-2 text-sm dark:bg-slate-900 dark:border-slate-700" placeholder="p.ej. 0">
+        </label>
+
+        <button id="btnLoad" class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 text-white shadow hover:bg-indigo-700">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 opacity-90" viewBox="0 0 24 24" fill="currentColor"><path d="M12 16l4-5h-3V4h-2v7H8l4 5Zm-6 2h12v2H6v-2Z"/></svg>
+          Cargar
+        </button>
+
+        <!-- Switch tema -->
+        <label class="theme-switch cursor-pointer ml-2" title="Cambiar tema claro/oscuro">
+          <input id="themeToggle" type="checkbox" aria-label="Cambiar tema">
+          <div class="track"><span>🌞</span><span>🌙</span><div class="thumb"></div></div>
+        </label>
+      </div>
+    </div>
+
+    <!-- Tabs + acciones -->
+    <nav class="flex items-center gap-2 no-print">
+      <a href="#sigla" id="tab-sigla" class="px-3 py-2 rounded-lg border text-sm hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800">Por SIGLA</a>
+      <a href="#proveedor" id="tab-proveedor" class="px-3 py-2 rounded-lg border text-sm hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800">Por PROVEEDOR</a>
+
+      <div class="ml-auto flex items-center gap-2">
+        <button id="btnOpen" class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-sm hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800" title="Abrir Google Sheet (editable)">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 opacity-80" viewBox="0 0 24 24" fill="currentColor"><path d="M19 19H5V5h7V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7h-2v7ZM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7Z"/></svg>
+          Abrir Google Sheet
+        </button>
+        <button id="btnPrint" class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-sm hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800" title="Imprime la vista activa">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 opacity-80" viewBox="0 0 24 24" fill="currentColor"><path d="M6 9V2h12v7H6Zm10-2V4H8v3h8ZM6 22v-5H2v-7h20v7h-4v5H6Zm12-7H6v3h12v-3Z"/></svg>
+          Imprimir
+        </button>
+      </div>
+    </nav>
+    <p class="text-xs text-slate-500 -mt-1 no-print dark:text-slate-300/70">Desde <b>Abrir Google Sheet</b> puedes ingresar a la hoja <i>editable</i> para agregar o actualizar datos.</p>
+  </div>
+</header>
+
+<main class="max-w-7xl mx-auto px-6 py-6">
+  <!-- Filtros + KPIs -->
+  <section class="mb-6 grid grid-cols-1 lg:grid-cols-12 gap-4">
+
+    <!-- Filtros -->
+    <div class="lg:col-span-9 bg-white dark:bg-slate-800 rounded-2xl p-5 shadow">
+      <div class="grid gap-4 md:grid-cols-3 lg:grid-cols-4 items-end">
+        <label class="text-sm">
+          <span class="block text-slate-600 dark:text-slate-300 font-medium mb-1">Buscar SIGLA / PROVEEDOR</span>
+          <input id="txtBuscar" type="search" placeholder="Filtra texto…" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 dark:bg-slate-900 dark:border-slate-700">
+        </label>
+
+        <label class="text-sm">
+          <span class="block text-slate-600 dark:text-slate-300 font-medium mb-1">Año</span>
+          <select id="selAnio" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 dark:bg-slate-900 dark:border-slate-700">
+            <option value="all" selected>Todos</option>
+          </select>
+        </label>
+
+        <label class="text-sm">
+          <span class="block text-slate-600 dark:text-slate-300 font-medium mb-1">Mes</span>
+          <select id="selMes" class="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 dark:bg-slate-900 dark:border-slate-700">
+            <option value="all" selected>Todos</option>
+          </select>
+        </label>
+
+        <label class="text-sm flex items-center gap-2 md:mt-0 mt-2">
+          <input id="chkSoloActivos" type="checkbox" class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600">
+          <span class="text-slate-700 dark:text-slate-300">Solo Estado = <b>Activo</b></span>
+        </label>
+      </div>
+
+      <div class="mt-4 flex flex-wrap gap-2">
+        <button id="btnLimpiar" class="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg border hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 opacity-80" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19a2 2 0 0 1-2-2V7H2V5h6V4h8v1h6v2h-2v10a2 2 0 0 1-2 2H6Zm0-12v10h12V7H6Zm2 8h2V9H8v6Zm6 0h2V9h-2v6Z"/></svg>
+          Limpiar filtros
+        </button>
+      </div>
+    </div>
+
+    <!-- KPIs -->
+    <div class="lg:col-span-3 grid grid-cols-1 xs:grid-cols-2 md:grid-cols-3 lg:grid-cols-1 gap-3">
+      <div class="bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-2xl p-5 shadow h-[112px] flex items-center gap-4">
+        <div class="shrink-0 bg-white/15 p-3 rounded-xl">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="currentColor"><path d="M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v3H4V5Zm16 5H4v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-9ZM8 17H6v-2h2v2Zm5 0h-2v-2h2v2Zm5 0h-2v-2h2v2Z"/></svg>
+        </div>
+        <div class="min-w-0">
+          <div class="text-[11px] uppercase tracking-[.08em]/4 opacity-90">Filas</div>
+          <div id="kpiFilas" class="text-3xl font-extrabold leading-tight truncate">—</div>
+        </div>
+      </div>
+
+      <div class="bg-gradient-to-r from-sky-500 to-cyan-500 text-white rounded-2xl p-5 shadow h-[112px] flex items-center gap-4">
+        <div class="shrink-0 bg-white/15 p-3 rounded-xl">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="currentColor"><path d="M10.59 2.59A2 2 0 0 1 12 2h6a2 2 0 0 1 2 2v6a2 2 0 0 1-.59 1.41l-8.3 8.3a2 2 0 0 1-2.82 0l-6-6a2 2 0 0 1 0-2.82l8.3-8.3Z"/></svg>
+        </div>
+        <div class="min-w-0">
+          <div class="text-[11px] uppercase tracking-[.08em] opacity-90">Siglas distintas</div>
+          <div id="kpiSiglas" class="text-3xl font-extrabold leading-tight truncate">—</div>
+        </div>
+      </div>
+
+      <div class="bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-2xl p-5 shadow h-[112px] flex items-center gap-4">
+        <div class="shrink-0 bg-white/15 p-3 rounded-xl">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="currentColor"><path d="M3 21V5a2 2 0 0 1 2-2h7v18H3Zm9 0V6h7a2 2 0 0 1 2 2v13h-9ZM6 7h3v2H6V7Zm0 4h3v2H6v-2Zm0 4h3v2H6v-2Zm9-5h3v2h-3V10Zm0 4h3v2h-3v-2Z"/></svg>
+        </div>
+        <div class="min-w-0">
+          <div class="text-[11px] uppercase tracking-[.08em] opacity-90 whitespace-nowrap">Proveedores distintos</div>
+          <div id="kpiProveedores" class="text-3xl font-extrabold leading-tight truncate">—</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Vista: SIGLA ===== -->
+  <section id="view-sigla" class="view">
+    <section class="mb-6 bg-white dark:bg-slate-800 rounded-2xl p-4 shadow">
+      <h2 class="text-lg font-semibold mb-2">Top 15 SIGLA</h2>
+      <div id="chartWrap"><canvas id="chartSigla"></canvas></div>
+    </section>
+    <section class="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-semibold">Resumen por SIGLA</h2>
+        <div class="flex gap-2 no-print">
+          <button id="btnExportSigla" class="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg border hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-700/50">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 opacity-80" viewBox="0 0 24 24" fill="currentColor"><path d="M5 20h14v-2H5v2Zm7-18 7 7-1.41 1.41L13 6.83V16h-2V6.83L6.41 10.4 5 9l7-7Z"/></svg>
+            Descargar CSV
+          </button>
+          <button id="btnLimpiar2" class="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg border hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-700/50">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 opacity-80" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19a2 2 0 0 1-2-2V7H2V5h6V4h8v1h6v2h-2v10a2 2 0 0 1-2 2H6Zm0-12v10h12V7H6Zm2 8h2V9H8v6Zm6 0h2V9h-2v6Z"/></svg>
+            Limpiar filtros
+          </button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="min-w-full text-sm">
+          <thead>
+            <tr class="text-slate-700 dark:text-slate-200">
+              <th class="text-left p-2 sticky-th">SIGLA</th>
+              <th class="text-right p-2 sticky-th">Conteo</th>
+              <th class="text-right p-2 sticky-th">Repuestos</th>
+              <th class="text-right p-2 sticky-th">Mano de Obra</th>
+              <th class="text-right p-2 sticky-th">Total</th>
+              <th class="text-right p-2 sticky-th">% Part.</th>
+            </tr>
+          </thead>
+          <tbody id="tbodyResumen"></tbody>
+          <tfoot>
+            <tr class="bg-slate-50 dark:bg-slate-900/40 font-semibold">
+              <td class="p-2 text-right">Totales</td>
+              <td id="t_conteo" class="p-2 text-right">—</td>
+              <td id="t_repuestos" class="p-2 text-right">—</td>
+              <td id="t_mano" class="p-2 text-right">—</td>
+              <td id="t_total" class="p-2 text-right">—</td>
+              <td class="p-2 text-right">100%</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </section>
+  </section>
+
+  <!-- ===== Vista: PROVEEDOR ===== -->
+  <section id="view-proveedor" class="view hide">
+    <section class="mb-6 bg-white dark:bg-slate-800 rounded-2xl p-4 shadow">
+      <h2 class="text-lg font-semibold mb-2">Top 15 PROVEEDORES</h2>
+      <div id="chartWrapProv"><canvas id="chartProveedor"></canvas></div>
+    </section>
+    <section class="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-semibold">Resumen por PROVEEDOR</h2>
+        <button id="btnExportProv" class="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg border hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-700/50 no-print">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 opacity-80" viewBox="0 0 24 24" fill="currentColor"><path d="M5 20h14v-2H5v2Zm7-18 7 7-1.41 1.41L13 6.83V16h-2V6.83L6.41 10.4 5 9l7-7Z"/></svg>
+          Descargar CSV
+        </button>
+      </div>
+      <div class="table-wrap">
+        <table class="min-w-full text-sm">
+          <thead>
+            <tr class="text-slate-700 dark:text-slate-200">
+              <th class="text-left p-2 sticky-th">PROVEEDOR</th>
+              <th class="text-right p-2 sticky-th">Repuestos</th>
+              <th class="text-right p-2 sticky-th">Mano de Obra</th>
+              <th class="text-right p-2 sticky-th">Total</th>
+              <th class="text-right p-2 sticky-th">% Part.</th>
+            </tr>
+          </thead>
+          <tbody id="tbodyProveedor"></tbody>
+          <tfoot>
+            <tr class="bg-slate-50 dark:bg-slate-900/40 font-semibold">
+              <td class="p-2 text-right">Totales</td>
+              <td id="p_repuestos" class="p-2 text-right">—</td>
+              <td id="p_mano" class="p-2 text-right">—</td>
+              <td id="p_total" class="p-2 text-right">—</td>
+              <td class="p-2 text-right">100%</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <p class="text-xs text-slate-500 dark:text-slate-300/70 mt-3">Totales corresponden a los datos filtrados actualmente.</p>
+    </section>
+  </section>
+</main>
+
+<!-- Footer -->
+<footer class="px-6 py-4 border-t bg-white/70 dark:bg-slate-800/80 dark:border-slate-700 backdrop-blur">
+  <div class="max-w-7xl mx-auto text-sm flex flex-wrap items-center gap-x-4 gap-y-1">
+    <span class="opacity-80">Reportes de gastos — Transterra</span>
+    <span class="opacity-50">|</span>
+    <span class="opacity-80">Actualizado: <b id="updatedAt">—</b></span>
+    <span class="opacity-50">|</span>
+    <span class="opacity-70">Tema: <b id="themeLabel">Claro</b></span>
+  </div>
+</footer>
+
+<script>
+/* ==================== Tema (claro/oscuro) ==================== */
+(function initTheme(){
+  const root=document.documentElement;
+  const saved=localStorage.getItem('theme');
+  const prefersDark=window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const wantDark = saved ? (saved==='dark') : prefersDark;
+
+  root.classList.toggle('dark', wantDark);
+  const toggle=document.getElementById('themeToggle');
+  const label=document.getElementById('themeLabel');
+  if(toggle){ toggle.checked = wantDark; }
+  if(label){ label.textContent = wantDark ? 'Oscuro' : 'Claro'; }
+
+  if(toggle){
+    toggle.addEventListener('change', ()=>{
+      const isDark = toggle.checked;
+      root.classList.toggle('dark', isDark);
+      localStorage.setItem('theme', isDark ? 'dark' : 'light');
+      if(label){ label.textContent = isDark ? 'Oscuro' : 'Claro'; }
+      renderChartSigla(lastSiglaLabels,lastSiglaRep,lastSiglaMano);
+      renderChartProveedor(lastProvLabels,lastProvRep,lastProvMano);
+    });
+  }
+})();
+
+/* ==================== Utils ==================== */
+let RAW=[]; let chartSiglaRef; let chartProvRef;
+let lastSiglaLabels=[], lastSiglaRep=[], lastSiglaMano=[];
+let lastProvLabels=[], lastProvRep=[], lastProvMano=[];
+const nf=new Intl.NumberFormat('es-CL');
+const nfCompact=new Intl.NumberFormat('es-CL',{notation:'compact',maximumFractionDigits:1});
+const MONTH_N={'ENERO':1,'ENE':1,'FEBRERO':2,'FEB':2,'MARZO':3,'MAR':3,'ABRIL':4,'ABR':4,'MAYO':5,'MAY':5,'JUNIO':6,'JUN':6,'JULIO':7,'JUL':7,'AGOSTO':8,'AGO':8,'SEPTIEMBRE':9,'SETIEMBRE':9,'SEP':9,'OCTUBRE':10,'OCT':10,'NOVIEMBRE':11,'NOV':11,'DICIEMBRE':12,'DIC':12};
+const MONTH_NAME=[null,'Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+const norm=s=>String(s??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
+const keyLike=(row,needle)=>{if(!row)return null;const keys=Object.keys(row);const N=norm(needle);return keys.find(k=>norm(k).includes(N))||null;};
+const validId=id=>/^[A-Za-z0-9\-_]{25,}$/.test(id||'');
+
+/* ======== Estilo global de barras (uniforme) ======== */
+const BAR_RADIUS = 0; // pon 0 si prefieres todo cuadrado
+function stackCornerRadius(){
+  return {
+    topLeft: BAR_RADIUS,
+    topRight: BAR_RADIUS,
+    bottomLeft: 0,
+    bottomRight: 0
+  };
+}
+
+/* parse helpers */
+function parseMonthVal(v){ if(v==null)return NaN; if(typeof v==='number'&&v>=1&&v<=12)return v|0;
+  const s=norm(v).trim(); if(/^\d{1,2}$/.test(s)){const m=+s;return(m>=1&&m<=12)?m:NaN;} if(MONTH_N[s])return MONTH_N[s]; return NaN; }
+function parseYearVal(v){ if(v==null)return NaN; if(typeof v==='number')return v|0; const s=String(v).trim(); return /^\d{4}$/.test(s)?+s:NaN; }
+function parseDateSmart(v){
+  const s=String(v||'').trim(); if(!s) return null;
+  let m=s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/); if(m) return new Date(+m[1],+m[2]-1,+m[3]);
+  m=s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})$/); if(m){const yyyy=+m[3]<100?2000+ +m[3]:+m[3]; return new Date(yyyy,+m[2]-1,+m[1]);}
+  const d=new Date(s); return isNaN(d)?null:d;
+}
+function toNumber(x){ if(x==null)return NaN; if(typeof x==='number')return x; const s=String(x).replace(/\./g,'').replace(/,/g,'.'); const n=Number(s); return isNaN(n)?NaN:n; }
+
+/* GViz JSONP loader con timeout */
+function extractId(s){ if(!s)return''; const m=String(s).match(/\/d\/([a-zA-Z0-9\-_]+)/); return m?m[1]:String(s).trim(); }
+function loadSheetGVizByName(sheetId,sheetName,timeoutMs=12000){
+  return new Promise((resolve,reject)=>{
+    const cb="GVIZ_CB_"+Math.random().toString(36).slice(2);
+    let finished=false;
+    const cleanup=(script)=>{ delete window[cb]; if(script&&script.parentNode) script.parentNode.removeChild(script); };
+    window[cb]=(resp)=>{
+      if(finished) return; finished=true; clearTimeout(timer);
+      try{
+        const t=resp.table; const headers=t.cols.map(c=>c.label||c.id);
+        const rows=t.rows.map(r=>{ const o={}; r.c.forEach((cell,i)=>{ o[headers[i]] = cell ? (cell.v ?? "") : "";}); return o; });
+        resolve(rows);
+      }catch(e){ reject(e); }
+      cleanup(script);
+    };
+    const url=`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tq=${encodeURIComponent("select *")}&sheet=${encodeURIComponent(sheetName)}&headers=1&tqx=${encodeURIComponent("responseHandler:"+cb+";out:json")}`;
+    const script=document.createElement('script'); script.src=url; script.async=true;
+    script.onerror=()=>{ if(finished) return; finished=true; clearTimeout(timer); cleanup(script); reject(new Error("Error de red al cargar GViz")); };
+    const timer=setTimeout(()=>{ if(finished) return; finished=true; cleanup(script); reject(new Error("Timeout GViz (ID/Hoja incorrecta o permisos)")); }, timeoutMs);
+    document.body.appendChild(script);
+  });
+}
+
+/* Año/Mes desde columnas variables */
+let COLS={};
+function deriveYearMonth(rows){
+  if(!rows.length) return;
+  const s=rows[0];
+  const cA=keyLike(s,'AÑO')||keyLike(s,'ANIO')||keyLike(s,'YEAR');
+  const cM=keyLike(s,'MES')||keyLike(s,'MONTH');
+  const cF=keyLike(s,'FECHA')||keyLike(s,'DATE');
+  COLS={anio:cA,mes:cM,fecha:cF};
+  rows.forEach(r=>{
+    let y=NaN,m=NaN; if(cA) y=parseYearVal(r[cA]); if(cM) m=parseMonthVal(r[cM]);
+    if((!Number.isFinite(y)||!Number.isFinite(m))&&cF){ const d=parseDateSmart(r[cF]); if(d){ if(!Number.isFinite(y)) y=d.getFullYear(); if(!Number.isFinite(m)) m=d.getMonth()+1; } }
+    r.__anio=Number.isFinite(y)?y:null; r.__mesn=Number.isFinite(m)?m:null; r.__mes=Number.isFinite(m)?MONTH_NAME[m]:null;
+  });
+}
+function populateYearMonthSelectors(rows){
+  const years=[...new Set(rows.map(r=>r.__anio).filter(v=>v!=null))].sort((a,b)=>b-a);
+  const months=[...new Set(rows.map(r=>r.__mesn).filter(v=>v!=null))].sort((a,b)=>a-b);
+  const selY=document.getElementById('selAnio'); const selM=document.getElementById('selMes');
+  selY.innerHTML=`<option value="all">Todos</option>`+years.map(y=>`<option value="${y}">${y}</option>`).join('');
+  selM.innerHTML=`<option value="all">Todos</option>`+months.map(m=>`<option value="${m}">${MONTH_NAME[m]}</option>`).join('');
+}
+
+/* Filtros */
+function aplicarFiltros(data){
+  const buscar=document.getElementById('txtBuscar').value.toLowerCase();
+  const soloAct=document.getElementById('chkSoloActivos').checked;
+  const anioSel=document.getElementById('selAnio').value;
+  const mesSel=document.getElementById('selMes').value;
+  return data.filter(r=>{
+    const searchable=( (r['SIGLA']??'') + ' ' + (r['PROVEEDOR']??'') ).toString().toLowerCase();
+    if(buscar && !searchable.includes(buscar)) return false;
+    if(soloAct && 'Estado' in r && String(r['Estado']).toLowerCase()!=='activo') return false;
+    if(anioSel!=='all' && r.__anio!==parseInt(anioSel)) return false;
+    if(mesSel!=='all' && r.__mesn!==parseInt(mesSel)) return false;
+    return true;
+  });
+}
+
+/* ======== Agrupar SIGLA ======== */
+function agruparSigla(rows){
+  const mapa=new Map();
+  for(const r of rows){
+    const k=(r['SIGLA']??'').toString()||'(sin SIGLA)';
+    const prev=mapa.get(k)||{sigla:k,conteo:0,repuestos:0,mano:0,total:0};
+    prev.conteo+=1;
+    const rep=toNumber(r['REPUESTOS']); const man=toNumber(r['MANO DE OBRA']);
+    if(!isNaN(rep)) prev.repuestos+=rep;
+    if(!isNaN(man)) prev.mano+=man;
+    prev.total=prev.repuestos+prev.mano;
+    mapa.set(k,prev);
+  }
+  const arr=[...mapa.values()];
+  const total=arr.reduce((a,b)=>a+b.total,0);
+  arr.forEach(x=>x.part=total?x.total/total:0);
+  return arr.sort((a,b)=>b.total-a.total);
+}
+function renderSigla(resumen,filtrada){
+  document.getElementById('kpiFilas').textContent=nf.format(filtrada.length);
+  document.getElementById('kpiSiglas').textContent=nf.format(new Set(filtrada.map(r=>String(r['SIGLA']||''))).size);
+  document.getElementById('kpiProveedores').textContent=nf.format(new Set(filtrada.map(r=>String(r['PROVEEDOR']||''))).size);
+  pintarTablaSigla(resumen);
+  const top=resumen.slice(0,15);
+  const labels=top.map(x=>x.sigla), rep=top.map(x=>x.repuestos), mano=top.map(x=>x.mano);
+  renderChartSigla(labels,rep,mano);
+}
+function pintarTablaSigla(resumen){
+  const tb=document.getElementById('tbodyResumen'); tb.innerHTML='';
+  let sConteo=0,sRep=0,sMan=0,sTot=0;
+  for(const r of resumen){
+    sConteo+=r.conteo; sRep+=r.repuestos; sMan+=r.mano; sTot+=r.total;
+    const tr=document.createElement('tr'); tr.className='border-b last:border-0 hover:bg-slate-50 dark:hover:bg-slate-800/80';
+    tr.innerHTML=`<td class="p-2 font-medium">${r.sigla}</td>
+      <td class="p-2 text-right">${nf.format(r.conteo)}</td>
+      <td class="p-2 text-right">${nf.format(r.repuestos)}</td>
+      <td class="p-2 text-right">${nf.format(r.mano)}</td>
+      <td class="p-2 text-right">${nf.format(r.total)}</td>
+      <td class="p-2 text-right">${(r.part*100).toFixed(1)}%</td>`;
+    tb.appendChild(tr);
+  }
+  document.getElementById('t_conteo').textContent=nf.format(sConteo);
+  document.getElementById('t_repuestos').textContent=nf.format(sRep);
+  document.getElementById('t_mano').textContent=nf.format(sMan);
+  document.getElementById('t_total').textContent=nf.format(sTot);
+}
+
+/* ======== Chart helpers: tema + gradientes ======== */
+function chartTheme(){
+  const dark=document.documentElement.classList.contains('dark');
+  return {
+    gridColor: dark ? '#475569' : '#e2e8f0',
+    tickColor: dark ? '#e2e8f0' : '#1e293b',
+    labelColor: dark ? '#e2e8f0' : '#1e293b',
+    dlBg: dark ? 'rgba(2,6,23,.55)' : 'rgba(255,255,255,.75)'
+  };
+}
+/* Gradiente vertical leyendo variables CSS */
+function makeBarGradient(ctx, c1Var, c2Var){
+  const {chartArea} = ctx.chart;
+  const rootStyles=getComputedStyle(document.documentElement);
+  if(!chartArea) return rootStyles.getPropertyValue(c1Var).trim();
+  const g = ctx.chart.ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+  g.addColorStop(0, rootStyles.getPropertyValue(c1Var).trim());
+  g.addColorStop(1, rootStyles.getPropertyValue(c2Var).trim());
+  return g;
+}
+
+/* ======== Charts ======== */
+function renderChartSigla(labels,repuestos,mano){
+  lastSiglaLabels=labels; lastSiglaRep=repuestos; lastSiglaMano=mano;
+  const {gridColor,tickColor,labelColor,dlBg}=chartTheme();
+  const ctx=document.getElementById('chartSigla');
+  if(chartSiglaRef) chartSiglaRef.destroy();
+  chartSiglaRef=new Chart(ctx,{
+    type:'bar',
+    data:{labels,datasets:[
+      {label:'Repuestos',data:repuestos,
+       backgroundColor:(c)=>makeBarGradient(c,'--rep1','--rep2'),
+       borderColor:'var(--rep-b)', borderWidth:2.2, borderJoinStyle:'round',
+       borderSkipped:false, borderRadius:stackCornerRadius(), stack:'t', maxBarThickness:44},
+      {label:'Mano de Obra',data:mano,
+       backgroundColor:(c)=>makeBarGradient(c,'--mano1','--mano2'),
+       borderColor:'var(--mano-b)', borderWidth:2.2, borderJoinStyle:'round',
+       borderSkipped:false, borderRadius:stackCornerRadius(), stack:'t', maxBarThickness:44}
+    ]},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{
+        legend:{labels:{color:labelColor, usePointStyle:true, pointStyle:'rectRounded'}},
+        tooltip:{callbacks:{ label:c=>` ${c.dataset.label}: ${nf.format(c.raw??0)}`}},
+        datalabels:{
+          anchor:'end', align:'top', offset:2, clip:true,
+          color:labelColor, backgroundColor:dlBg, borderRadius:4, padding:3,
+          formatter:v=>v?nfCompact.format(v):'', font:{weight:'600',size:10}
+        }
+      },
+      scales:{
+        x:{stacked:true, grid:{color:gridColor}, ticks:{color:tickColor, maxRotation:45, minRotation:45}},
+        y:{stacked:true, beginAtZero:true, grid:{color:gridColor}, ticks:{color:tickColor, callback:v=>nfCompact.format(v)}}
+      }
+    },
+    plugins:[ChartDataLabels]
+  });
+}
+
+function agruparProveedor(rows){
+  const mapa=new Map();
+  for(const r of rows){
+    const k=(r['PROVEEDOR']??'').toString()||'(sin PROVEEDOR)';
+    const prev=mapa.get(k)||{prov:k,repuestos:0,mano:0,total:0};
+    const rep=toNumber(r['REPUESTOS']);
+    const man=toNumber(r['MANO DE OBRA']);
+    if(!isNaN(rep)) prev.repuestos+=rep;
+    if(!isNaN(man)) prev.mano+=man;
+    prev.total=prev.repuestos+prev.mano;
+    mapa.set(k,prev);
+  }
+  const arr=[...mapa.values()];
+  const total=arr.reduce((a,b)=>a+b.total,0);
+  arr.forEach(x=>x.part=total?x.total/total:0);
+  return arr.sort((a,b)=>b.total-a.total);
+}
+function renderProveedor(resumenProv){
+  pintarTablaProveedor(resumenProv);
+  const topProv=resumenProv.slice(0,15);
+  const labels=topProv.map(x=>x.prov), rep=topProv.map(x=>x.repuestos), mano=topProv.map(x=>x.mano);
+  renderChartProveedor(labels,rep,mano);
+}
+function pintarTablaProveedor(resumen){
+  const tb=document.getElementById('tbodyProveedor'); tb.innerHTML='';
+  let sRep=0, sMan=0, sTot=0;
+  for(const r of resumen){
+    sRep+=r.repuestos; sMan+=r.mano; sTot+=r.total;
+    const tr=document.createElement('tr'); tr.className='border-b last:border-0 hover:bg-slate-50 dark:hover:bg-slate-800/80';
+    tr.innerHTML=`<td class="p-2 font-medium">${r.prov}</td>
+      <td class="p-2 text-right">${nf.format(r.repuestos)}</td>
+      <td class="p-2 text-right">${nf.format(r.mano)}</td>
+      <td class="p-2 text-right">${nf.format(r.total)}</td>
+      <td class="p-2 text-right">${(r.part*100).toFixed(1)}%</td>`;
+    tb.appendChild(tr);
+  }
+  document.getElementById('p_repuestos').textContent=nf.format(sRep);
+  document.getElementById('p_mano').textContent=nf.format(sMan);
+  document.getElementById('p_total').textContent=nf.format(sTot);
+}
+function renderChartProveedor(labels,repuestos,mano){
+  lastProvLabels=labels; lastProvRep=repuestos; lastProvMano=mano;
+  const {gridColor,tickColor,labelColor,dlBg}=chartTheme();
+  const ctx=document.getElementById('chartProveedor');
+  if(chartProvRef) chartProvRef.destroy();
+  chartProvRef=new Chart(ctx,{
+    type:'bar',
+    data:{labels,datasets:[
+      {label:'Repuestos',data:repuestos,
+       backgroundColor:(c)=>makeBarGradient(c,'--rep1','--rep2'),
+       borderColor:'var(--rep-b)', borderWidth:2.2, borderJoinStyle:'round',
+       borderSkipped:false, borderRadius:stackCornerRadius(), stack:'t', maxBarThickness:44},
+      {label:'Mano de Obra',data:mano,
+       backgroundColor:(c)=>makeBarGradient(c,'--mano1','--mano2'),
+       borderColor:'var(--mano-b)', borderWidth:2.2, borderJoinStyle:'round',
+       borderSkipped:false, borderRadius:stackCornerRadius(), stack:'t', maxBarThickness:44}
+    ]},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{
+        legend:{labels:{color:labelColor, usePointStyle:true, pointStyle:'rectRounded'}},
+        tooltip:{callbacks:{ label:c=>` ${c.dataset.label}: ${nf.format(c.raw??0)}`}},
+        datalabels:{
+          anchor:'end', align:'top', offset:2, clip:true,
+          color:labelColor, backgroundColor:dlBg, borderRadius:4, padding:3,
+          formatter:v=>v?nfCompact.format(v):'', font:{weight:'600',size:10}
+        }
+      },
+      scales:{
+        x:{stacked:true, grid:{color:gridColor}, ticks:{color:tickColor, maxRotation:45, minRotation:45}},
+        y:{stacked:true, beginAtZero:true, grid:{color:gridColor}, ticks:{color:tickColor, callback:v=>nfCompact.format(v)}}
+      }
+    },
+    plugins:[ChartDataLabels]
+  });
+}
+
+/* ======== Export CSV ======== */
+function exportCSVSigla(rows){
+  const header=['SIGLA','Conteo','Repuestos','Mano_de_Obra','Total','Participacion_%'];
+  const lines=[header.join(',')]; let sC=0,sR=0,sM=0,sT=0;
+  for(const r of rows){ sC+=r.conteo; sR+=r.repuestos; sM+=r.mano; sT+=r.total;
+    lines.push([`"${r.sigla.replaceAll('"','""')}"`,r.conteo,r.repuestos,r.mano,r.total,(r.part*100).toFixed(2)].join(',')); }
+  lines.push(['"Totales"',sC,sR,sM,sT,'100.00'].join(','));
+  const blob=new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8;'}); const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download='resumen_por_SIGLA.csv'; a.click(); URL.revokeObjectURL(a.href);
+}
+function exportCSVProveedor(rows){
+  const header=['Proveedor','Repuestos','Mano_de_Obra','Total','Participacion_%'];
+  const lines=[header.join(',')];
+  for(const r of rows){
+    lines.push([`"${r.prov.replaceAll('"','""')}"`,r.repuestos,r.mano,r.total,(r.part*100).toFixed(2)].join(','));
+  }
+  const blob=new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8;'}); const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download='resumen_por_proveedor.csv'; a.click(); URL.revokeObjectURL(a.href);
+}
+
+/* ======== Tabs / wireup ======== */
+function setActiveTab(name){
+  const vsSigla=document.getElementById('view-sigla');
+  const vsProv=document.getElementById('view-proveedor');
+  const tSig=document.getElementById('tab-sigla');
+  const tProv=document.getElementById('tab-proveedor');
+  if(name==='proveedor'){
+    vsSigla.classList.add('hide'); vsProv.classList.remove('hide');
+    tProv.classList.add('tab-active'); tSig.classList.remove('tab-active');
+  }else{
+    vsProv.classList.add('hide'); vsSigla.classList.remove('hide');
+    tSig.classList.add('tab-active'); tProv.classList.remove('tab-active');
+  }
+}
+function currentView(){ return (location.hash.replace('#','')||'sigla').toLowerCase()==='proveedor'?'proveedor':'sigla'; }
+
+/* ======== Fecha “Actualizado” ======== */
+function setUpdatedNow(){
+  const el=document.getElementById('updatedAt');
+  try{
+    const opts={dateStyle:'medium', timeStyle:'short', timeZone:'America/Santiago', hour12:false};
+    el.textContent=new Intl.DateTimeFormat('es-CL',opts).format(new Date());
+  }catch(_){
+    el.textContent = new Date().toLocaleString('es-CL');
+  }
+}
+
+/* ======== Carga / refresco ======== */
+async function cargar(){
+  const raw=document.getElementById('sheetInput').value.trim();
+  const sheetId=extractId(raw);
+  const name=(document.getElementById('sheetName').value||'BD').trim();
+  if(!validId(sheetId)){ alert('El ID parece incompleto o inválido. Pega la URL completa (…/d/<ID>/…).'); return; }
+  document.getElementById('sheetInput').value=sheetId;
+
+  try{
+    const rows=await loadSheetGVizByName(sheetId,name);
+    RAW=rows.map(r=>Object.fromEntries(Object.entries(r).map(([k,v])=>[k.trim(), typeof v==='string'?v.trim():v])));
+    deriveYearMonth(RAW);
+    populateYearMonthSelectors(RAW);
+    refrescar();
+    setUpdatedNow();
+  }catch(err){
+    alert('No se pudo leer la hoja.\nVerifica permisos (Cualquiera con el enlace: Lector) y el nombre de pestaña.\n\nDetalle: '+err.message);
+  }
+}
+function refrescar(){
+  const filtrada=aplicarFiltros(RAW);
+
+  // SIGLA
+  const resumenSigla=agruparSigla(filtrada);
+  renderSigla(resumenSigla,filtrada);
+  document.getElementById('btnExportSigla').onclick=()=>exportCSVSigla(resumenSigla);
+
+  // PROVEEDOR
+  const resumenProv=agruparProveedor(filtrada);
+  renderProveedor(resumenProv);
+  document.getElementById('btnExportProv').onclick=()=>exportCSVProveedor(resumenProv);
+}
+
+/* Acciones */
+function openSheet(){
+  const id=document.getElementById('sheetInput').value.trim();
+  if(!validId(id)){ alert('Falta un ID válido.'); return; }
+  const gid=(document.getElementById('sheetGid').value||'').trim();
+  const base=`https://docs.google.com/spreadsheets/d/${id}/edit`;
+  const url=gid?`${base}#gid=${encodeURIComponent(gid)}`:base;
+  window.open(url,'_blank','noopener');
+}
+function printActive(){
+  const v=currentView();
+  const sig=document.getElementById('view-sigla');
+  const prv=document.getElementById('view-proveedor');
+  const toHide=v==='sigla' ? prv : sig;
+  toHide.classList.add('hide');
+  window.print();
+}
+
+/* Listeners */
+document.getElementById('btnLoad').addEventListener('click',cargar);
+document.getElementById('btnOpen').addEventListener('click',openSheet);
+document.getElementById('btnPrint').addEventListener('click',printActive);
+document.getElementById('txtBuscar').addEventListener('input',refrescar);
+document.getElementById('chkSoloActivos').addEventListener('change',refrescar);
+for (const id of ['btnLimpiar','btnLimpiar2']) {
+  const el=document.getElementById(id); if(el) el.addEventListener('click',()=>{
+    document.getElementById('txtBuscar').value='';
+    document.getElementById('chkSoloActivos').checked=false;
+    document.getElementById('selAnio').value='all';
+    document.getElementById('selMes').value='all';
+    refrescar();
+  });
+}
+document.getElementById('selAnio').addEventListener('change',refrescar);
+document.getElementById('selMes').addEventListener('change',refrescar);
+window.addEventListener('hashchange',()=>setActiveTab(currentView()));
+window.addEventListener('DOMContentLoaded',()=>{ setActiveTab(currentView()); cargar(); setUpdatedNow(); });
+
+/* Helper de ID */
+function extractId(s){ if(!s)return''; const m=String(s).match(/\/d\/([a-zA-Z0-9\-_]+)/); return m?m[1]:String(s).trim(); }
+</script>
+</body>
+</html>
